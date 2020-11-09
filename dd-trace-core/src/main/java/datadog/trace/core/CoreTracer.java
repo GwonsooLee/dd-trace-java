@@ -21,6 +21,8 @@ import datadog.trace.bootstrap.instrumentation.api.AgentScopeManager;
 import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
 import datadog.trace.bootstrap.instrumentation.api.AgentTracer;
 import datadog.trace.bootstrap.instrumentation.api.ScopeSource;
+import datadog.trace.common.metrics.LoggingReporter;
+import datadog.trace.common.metrics.MetricsAggregator;
 import datadog.trace.common.sampling.PrioritySampler;
 import datadog.trace.common.sampling.Sampler;
 import datadog.trace.common.writer.Writer;
@@ -88,6 +90,8 @@ public class CoreTracer implements AgentTracer.TracerAPI {
   final Sampler sampler;
   /** Scope manager is in charge of managing the scopes from which spans are created */
   final AgentScopeManager scopeManager;
+
+  final MetricsAggregator metricsAggregator;
 
   /** A set of tags that are added only to the application's root span */
   private final Map<String, String> localRootSpanTags;
@@ -228,6 +232,12 @@ public class CoreTracer implements AgentTracer.TracerAPI {
     } else {
       this.scopeManager = scopeManager;
     }
+
+    String env = config.getMergedSpanTags().get(GeneralConfig.ENV);
+    if (null == env) {
+      env = "";
+    }
+    this.metricsAggregator = new MetricsAggregator(new LoggingReporter(env), 1000, 2096);
 
     if (writer == null) {
       this.writer = WriterFactory.createWriter(config, sampler, this.statsDClient, monitoring);
@@ -428,6 +438,9 @@ public class CoreTracer implements AgentTracer.TracerAPI {
 
     if (!writtenTrace.isEmpty()) {
       writtenTrace = traceProcessor.onTraceComplete(writtenTrace);
+
+      metricsAggregator.publish(writtenTrace);
+
       final DDSpan rootSpan = writtenTrace.get(0).getLocalRootSpan();
       setSamplingPriorityIfNecessary(rootSpan);
 
